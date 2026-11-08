@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Zhi-Zip Web</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#222}
+h1{font-size:22px}
+.box{border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:20px}
+input,button{font-size:14px;padding:8px;margin:4px 0}
+button{cursor:pointer}
+code{background:#f4f4f4;padding:2px 6px;border-radius:4px}
+a{color:#0b6efd}
+</style>
+</head>
+<body>
+<h1>Zhi-Zip Web 压缩工具</h1>
+
+<div class="box">
+  <h3>压缩</h3>
+  <div><input type="file" id="files" multiple></div>
+  <div><input type="text" id="outname" value="archive.zip" placeholder="输出文件名"></div>
+  <button onclick="doCompress()">开始压缩</button>
+  <div id="c-status" style="margin-top:10px"></div>
+</div>
+
+<div class="box">
+  <h3>解压（仅 zip）</h3>
+  <div><input type="file" id="zfile" accept=".zip"></div>
+  <button onclick="doDecompress()">开始解压</button>
+  <div id="d-status" style="margin-top:10px"></div>
+</div>
+
+<script>
+const API = "{{ api_base }}";
+
+function poll(taskId, el, onDone) {
+  const timer = setInterval(async () => {
+    const r = await fetch(`${API}/api/tasks/${taskId}`);
+    const j = await r.json();
+    let text = `状态：${j.status}`;
+    if (j.percent !== undefined) text += `（${j.percent}%）`;
+    el.innerHTML = text;
+    if (j.status === "SUCCESS") { clearInterval(timer); onDone(j); }
+    if (j.status === "FAILURE") {
+      clearInterval(timer);
+      el.innerHTML = `<span style="color:#c00">失败：${j.error}</span>`;
+    }
+  }, 800);
+}
+
+async function doCompress() {
+  const files = document.getElementById("files").files;
+  if (!files.length) return alert("请选择文件");
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f, f.name);
+  fd.append("output_name", document.getElementById("outname").value || "archive.zip");
+  const el = document.getElementById("c-status");
+  el.textContent = "提交中...";
+  const r = await fetch(`${API}/api/compress/`, { method: "POST", body: fd });
+  if (!r.ok) { el.textContent = "提交失败：" + await r.text(); return; }
+  const j = await r.json();
+  poll(j.task_id, el, (done) => {
+    el.innerHTML += `<br><a href="${API}/api/download/${done.result.name}" target="_blank">下载 ${done.result.name}</a>`;
+  });
+}
+
+async function doDecompress() {
+  const f = document.getElementById("zfile").files[0];
+  if (!f) return alert("请选择 zip 文件");
+  const fd = new FormData();
+  fd.append("file", f, f.name);
+  const el = document.getElementById("d-status");
+  el.textContent = "提交中...";
+  const r = await fetch(`${API}/api/decompress/`, { method: "POST", body: fd });
+  if (!r.ok) { el.textContent = "提交失败：" + await r.text(); return; }
+  const j = await r.json();
+  poll(j.task_id, el, (done) => {
+    el.innerHTML += `<br>已解压到：<code>${done.result.output}</code>`;
+  });
+}
+</script>
+</body>
+</html>
